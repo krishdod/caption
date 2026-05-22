@@ -1,0 +1,31 @@
+{
+  "presets": {
+    "manual": [
+      {
+        "id": "manual_default",
+        "name": "Interview Coach (Default)",
+        "template": "Act as my expert interview coach. Use my voice and respond in the first person.\n\nJob Description:\n$jd\n\nResume:\n$resume\n\nQuestion:\n$question\n\nTranscript Snippet:\n$transcript\n\nProvide a concise, confident answer tailored to the JD and resume. Use STAR when appropriate.\n\nAnswer:"
+      }
+    ],
+    "auto": [
+      {
+        "id": "auto_default",
+        "name": "Auto Interview Answer",
+        "template": "You are my interview copilot. Craft a spoken response I can say immediately.\n\nJob Description:\n$jd\n\nResume:\n$resume\n\nLatest Question:\n$question\n\nMost recent transcript chunk:\n$transcript\n\nDeliver only the answer text in first person, confident, conversational tone."
+      }
+    ],
+    "rephrase": [
+      {
+        "id": "rephrase_default",
+        "name": "Clean Transcript",
+        "template": "Rewrite the following transcript into clean, fluent English, removing filler words but keeping meaning.\n\n$transcript"
+      }
+    ]
+  },
+  "selected": {
+    "manual": "manual_default",
+    "auto": "auto_default",
+    "rephrase": "rephrase_default",
+    "chat": "chat_default"
+  }
+}

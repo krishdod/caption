@@ -1,0 +1,7 @@
+{
+  "ollama_host": "http://localhost:11434",
+  "ollama_model": "gpt-oss:20b-cloud",
+  "max_history_length": 10,
+  "caption_check_interval": 0.3,
+  "theme": "dark"
+}

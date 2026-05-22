@@ -1,0 +1,23 @@
+2025-11-20 20:16:36,008 - INFO - Captions not open, waiting for user action
+2025-11-20 20:16:54,364 - INFO - Application closing requested.
+2025-11-20 20:16:58,811 - INFO - Captions not open, waiting for user action
+2025-11-20 20:17:04,616 - WARNING - Captions window not found after opening attempt
+2025-11-20 21:41:23,860 - INFO - Application closing requested.
+2025-11-25 02:58:35,622 - WARNING - Failed to update model combo: main thread is not in main loop
+2025-11-25 02:58:42,437 - INFO - Captions not open, waiting for user action
+2025-11-25 02:59:35,607 - WARNING - Captions window not found after opening attempt
+2025-11-25 02:59:41,012 - WARNING - Captions window not found after opening attempt
+2025-11-25 03:00:13,397 - WARNING - Captions window not found after opening attempt
+2025-11-25 03:00:30,288 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=3707 chars, history_messages=0)
+2025-11-25 03:00:49,368 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=4028 chars, history_messages=2)
+2025-11-25 03:01:28,768 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=4269 chars, history_messages=4)
+2025-11-25 03:01:48,870 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=4523 chars, history_messages=6)
+2025-11-25 03:02:26,418 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=4795 chars, history_messages=8)
+2025-11-25 03:03:12,408 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=5041 chars, history_messages=10)
+2025-11-25 03:03:40,361 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=5313 chars, history_messages=12)
+2025-11-25 03:04:36,607 - INFO - Sending prompt to Ollama (model=gpt-oss:20b-cloud, length=5351 chars, history_messages=14)
+2025-11-25 03:05:42,708 - WARNING - Captions window not found after opening attempt
+2025-11-25 03:06:08,686 - INFO - Application closing requested.
+2026-03-12 10:13:51,127 - INFO - Captions not open, waiting for user action
+2026-03-12 10:13:59,965 - INFO - New caption text detected: Ready to show live captions in English (United Sta...
+2026-03-12 10:14:25,217 - INFO - Application closing requested.

@@ -1,0 +1,16 @@
+uiautomation==2.0.18
+pyperclip==1.8.2
+requests==2.32.3
+ollama==0.3.1
+
+# File reading dependencies:
+PyPDF2==3.0.1          # For PDF files
+pdfplumber==0.11.7     # Alternative PDF reader
+python-docx==1.2.0     # For DOCX files
+docx2txt==0.9
+
+# Core runtime dependencies
+keyboard>=0.13.5
+
+# Optional but recommended for development
+pytest>=8.0.0          # For DOC files
