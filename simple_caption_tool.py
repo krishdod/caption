@@ -597,11 +597,167 @@ def _force_foreground(hwnd: int | None) -> bool:
 def _cache_chatgpt_input() -> None:
     """Find and cache the ChatGPT prompt field (slow path, not on every send)."""
     global chatgpt_input_ctrl
-    chatgpt_input_ctrl = _find_chatgpt_input_control(chatgpt_hwnd)
+    if not UIA_AVAILABLE or not chatgpt_hwnd:
+        chatgpt_input_ctrl = None
+        return
+    try:
+        with uia.UIAutomationInitializerInThread():
+            chatgpt_input_ctrl = _find_chatgpt_input_control(chatgpt_hwnd)
+    except Exception:
+        chatgpt_input_ctrl = None
+
+
+def _read_input_text(input_ctrl) -> str:
+    """Best-effort read of the ChatGPT composer contents."""
+    if not input_ctrl:
+        return ""
+    try:
+        txt = (input_ctrl.Name or "").strip()
+        if txt and txt.lower() not in ("message", "ask anything", "send a message"):
+            return txt
+    except Exception:
+        pass
+    try:
+        value_pattern = input_ctrl.GetValuePattern()
+        if value_pattern:
+            return (value_pattern.Value or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _clear_chatgpt_input_control(input_ctrl) -> None:
+    """Clear whatever is currently in the ChatGPT prompt box."""
+    if not input_ctrl:
+        return
+
+    try:
+        input_ctrl.SetFocus()
+    except Exception:
+        try:
+            input_ctrl.Click()
+        except Exception:
+            return
+
+    try:
+        value_pattern = input_ctrl.GetValuePattern()
+        if value_pattern:
+            value_pattern.SetValue("")
+            return
+    except Exception:
+        pass
+
+    try:
+        input_ctrl.SendKeys("{Ctrl}a", interval=0, waitTime=0)
+        time.sleep(0.02)
+        input_ctrl.SendKeys("{Delete}", interval=0, waitTime=0)
+    except Exception:
+        try:
+            keyboard.press_and_release("ctrl+a")
+            time.sleep(0.02)
+            keyboard.press_and_release("delete")
+        except Exception:
+            pass
+
+
+def _clear_chatgpt_input() -> None:
+    """Clear the ChatGPT prompt using the cached/found input control."""
+    global chatgpt_input_ctrl
+
+    if not UIA_AVAILABLE or not chatgpt_hwnd:
+        return
+
+    try:
+        with uia.UIAutomationInitializerInThread():
+            input_ctrl = chatgpt_input_ctrl or _find_chatgpt_input_control(chatgpt_hwnd)
+            if not input_ctrl:
+                return
+            chatgpt_input_ctrl = input_ctrl
+            _clear_chatgpt_input_control(input_ctrl)
+    except Exception:
+        pass
+
+
+def _clear_chatgpt_input_if_leftover(sent_text: str) -> None:
+    """Clear the prompt only if it still holds the text we already submitted."""
+    global chatgpt_input_ctrl
+
+    if not UIA_AVAILABLE or not chatgpt_hwnd or not sent_text:
+        return
+
+    try:
+        with uia.UIAutomationInitializerInThread():
+            input_ctrl = chatgpt_input_ctrl or _find_chatgpt_input_control(chatgpt_hwnd)
+            if not input_ctrl:
+                return
+            chatgpt_input_ctrl = input_ctrl
+            current = _read_input_text(input_ctrl)
+            if not current:
+                return
+            # Only wipe leftovers of the message we sent (not a new user draft).
+            sent_norm = " ".join(sent_text.split()).strip().lower()
+            cur_norm = " ".join(current.split()).strip().lower()
+            if cur_norm == sent_norm or sent_norm[:80] in cur_norm or cur_norm in sent_norm:
+                _clear_chatgpt_input_control(input_ctrl)
+    except Exception:
+        pass
+
+
+def _click_chatgpt_send_button() -> bool:
+    """Click ChatGPT's Send button if exposed to UI Automation."""
+    if not UIA_AVAILABLE or not chatgpt_hwnd:
+        return False
+
+    try:
+        root = uia.ControlFromHandle(chatgpt_hwnd)
+        candidates = []
+        for child, _depth in uia.WalkControl(root, includeTop=True, maxDepth=20):
+            try:
+                if child.ControlTypeName != "ButtonControl":
+                    continue
+                name = (child.Name or "").strip().lower()
+                aid = (getattr(child, "AutomationId", "") or "").strip().lower()
+                help_text = (getattr(child, "HelpText", "") or "").strip().lower()
+                if not (
+                    name in ("send", "send message", "submit")
+                    or "send" in name
+                    or "send" in aid
+                    or "send" in help_text
+                ):
+                    continue
+                try:
+                    if getattr(child, "IsOffscreen", False):
+                        continue
+                except Exception:
+                    pass
+                candidates.append(child)
+            except Exception:
+                continue
+
+        if not candidates:
+            return False
+
+        btn = sorted(candidates, key=_control_bottom_y)[-1]
+        try:
+            invoke = btn.GetInvokePattern()
+            if invoke:
+                invoke.Invoke()
+                return True
+        except Exception:
+            pass
+        btn.Click()
+        return True
+    except Exception:
+        return False
 
 
 def _paste_and_submit_to_input(text: str) -> bool:
-    """Paste text into ChatGPT input and press Enter in one shot."""
+    """
+    Reliably paste into ChatGPT and submit once.
+
+    Important: do NOT clear immediately after Enter — that made text flash
+    (paste then vanish) before ChatGPT could accept it.
+    """
     global chatgpt_input_ctrl
 
     if not UIA_AVAILABLE or not chatgpt_hwnd:
@@ -614,6 +770,7 @@ def _paste_and_submit_to_input(text: str) -> bool:
                 return False
             chatgpt_input_ctrl = input_ctrl
 
+            # Focus composer and wait for it to be active.
             try:
                 input_ctrl.SetFocus()
             except Exception:
@@ -621,10 +778,41 @@ def _paste_and_submit_to_input(text: str) -> bool:
                     input_ctrl.Click()
                 except Exception:
                     return False
+            time.sleep(0.06)
 
+            # Clear old leftovers BEFORE pasting only.
+            _clear_chatgpt_input_control(input_ctrl)
+            time.sleep(0.04)
+
+            # Paste, then verify it landed before submitting.
             pyperclip.copy(text)
+            time.sleep(0.02)
             input_ctrl.SendKeys("{Ctrl}v", interval=0, waitTime=0)
+            time.sleep(0.1)
+
+            pasted = _read_input_text(input_ctrl)
+            if not pasted:
+                # Retry paste once if composer was empty.
+                input_ctrl.SendKeys("{Ctrl}v", interval=0, waitTime=0)
+                time.sleep(0.1)
+
+            # Submit: Enter first, then Send button as backup.
             input_ctrl.SendKeys("{Enter}", interval=0, waitTime=0)
+            time.sleep(0.15)
+            _click_chatgpt_send_button()
+
+            # If text is still sitting there, try Enter one more time.
+            time.sleep(0.25)
+            leftover = _read_input_text(input_ctrl)
+            if leftover:
+                try:
+                    input_ctrl.SetFocus()
+                except Exception:
+                    pass
+                input_ctrl.SendKeys("{Enter}", interval=0, waitTime=0)
+                time.sleep(0.12)
+                _click_chatgpt_send_button()
+
         return True
     except Exception:
         return False
@@ -777,7 +965,7 @@ def _control_bottom_y(ctrl) -> int:
 
 
 def _find_chatgpt_input_control(hwnd: int | None):
-    """Find the ChatGPT prompt input (usually the lowest edit/document field)."""
+    """Find the ChatGPT prompt input. Caller must own UIA COM init."""
     if not UIA_AVAILABLE or not hwnd:
         return None
 
@@ -785,34 +973,33 @@ def _find_chatgpt_input_control(hwnd: int | None):
     candidates: list = []
 
     try:
-        with uia.UIAutomationInitializerInThread():
-            root = uia.ControlFromHandle(hwnd)
-            for child, _depth in uia.WalkControl(root, includeTop=True, maxDepth=25):
-                try:
-                    ctype = child.ControlTypeName
-                    if ctype not in ("EditControl", "DocumentControl"):
-                        continue
-
-                    try:
-                        if getattr(child, "IsOffscreen", False):
-                            continue
-                    except Exception:
-                        pass
-
-                    name = (child.Name or "").lower()
-                    aid = (getattr(child, "AutomationId", "") or "").lower()
-                    if any(k in name or k in aid for k in keywords):
-                        candidates.append(child)
-                        continue
-
-                    if ctype == "EditControl":
-                        candidates.append(child)
-                except Exception:
+        root = uia.ControlFromHandle(hwnd)
+        for child, _depth in uia.WalkControl(root, includeTop=True, maxDepth=25):
+            try:
+                ctype = child.ControlTypeName
+                if ctype not in ("EditControl", "DocumentControl"):
                     continue
 
-            if not candidates:
-                return None
-            return sorted(candidates, key=_control_bottom_y)[-1]
+                try:
+                    if getattr(child, "IsOffscreen", False):
+                        continue
+                except Exception:
+                    pass
+
+                name = (child.Name or "").lower()
+                aid = (getattr(child, "AutomationId", "") or "").lower()
+                if any(k in name or k in aid for k in keywords):
+                    candidates.append(child)
+                    continue
+
+                if ctype == "EditControl":
+                    candidates.append(child)
+            except Exception:
+                continue
+
+        if not candidates:
+            return None
+        return sorted(candidates, key=_control_bottom_y)[-1]
     except Exception:
         return None
 
@@ -880,33 +1067,73 @@ def _get_preview_text() -> str:
 
 
 def _execute_send_to_chatgpt(text: str) -> None:
-    """Run the actual paste+enter after the button click finishes."""
+    """Focus ChatGPT, paste, submit once, then clear leftovers only if needed."""
     global chatgpt_hwnd, chatgpt_input_ctrl
 
     try:
         if not chatgpt_hwnd and chatgpt_window_title:
             chatgpt_hwnd = _get_hwnd_by_title(chatgpt_window_title)
 
+        # Bring ChatGPT to front and give Windows time to finish focus switch.
+        if not _force_foreground(chatgpt_hwnd):
+            _focus_window(chatgpt_window_title, chatgpt_hwnd)
+        time.sleep(0.08)
+
         if not _force_foreground(chatgpt_hwnd) and not _focus_window(chatgpt_window_title, chatgpt_hwnd):
-            messagebox.showwarning("Window Not Found", "Could not focus the ChatGPT window.")
+            root.after(
+                0,
+                lambda: messagebox.showwarning(
+                    "Window Not Found", "Could not focus the ChatGPT window."
+                ),
+            )
             return
+
+        time.sleep(0.05)
 
         if _paste_and_submit_to_input(text):
-            status_label.config(text=f"Sent to ChatGPT ({len(text)} chars).", foreground="green")
-            _set_last_action(f"Sent to ChatGPT ({len(text)} chars)")
+            root.after(
+                0,
+                lambda: status_label.config(
+                    text=f"Sent to ChatGPT ({len(text)} chars).", foreground="green"
+                ),
+            )
+            root.after(0, lambda: _set_last_action(f"Sent to ChatGPT ({len(text)} chars)"))
+            # Only clear leftovers AFTER ChatGPT has had time to accept the message.
+            # Clearing too early made text flash in/out and required multiple clicks.
+            root.after(900, lambda t=text: _clear_chatgpt_input_if_leftover(t))
             return
 
-        # Fallback: global keyboard if UIA input was not found.
+        # Fallback: global keyboard path.
         if not chatgpt_input_ctrl:
             _cache_chatgpt_input()
+        keyboard.press_and_release("ctrl+a")
+        time.sleep(0.03)
+        keyboard.press_and_release("delete")
+        time.sleep(0.03)
         pyperclip.copy(text)
+        time.sleep(0.03)
         keyboard.press_and_release("ctrl+v")
+        time.sleep(0.1)
         keyboard.press_and_release("enter")
-        status_label.config(text=f"Sent to ChatGPT ({len(text)} chars).", foreground="green")
-        _set_last_action(f"Sent to ChatGPT ({len(text)} chars)")
+        time.sleep(0.2)
+        keyboard.press_and_release("enter")
+        root.after(
+            0,
+            lambda: status_label.config(
+                text=f"Sent to ChatGPT ({len(text)} chars).", foreground="green"
+            ),
+        )
+        root.after(0, lambda: _set_last_action(f"Sent to ChatGPT ({len(text)} chars)"))
+        root.after(900, lambda t=text: _clear_chatgpt_input_if_leftover(t))
     except Exception as e:
-        messagebox.showerror("Error", f"Failed to send to ChatGPT: {e}")
-        status_label.config(text="Failed to send to ChatGPT.", foreground="red")
+        root.after(
+            0,
+            lambda: messagebox.showerror("Error", f"Failed to send to ChatGPT: {e}"),
+        )
+        root.after(
+            0,
+            lambda: status_label.config(text="Failed to send to ChatGPT.", foreground="red"),
+        )
 
 
 def send_to_chatgpt() -> None:
@@ -926,8 +1153,13 @@ def send_to_chatgpt() -> None:
     if not _ensure_chatgpt_window():
         return
 
-    # Defer one tick so Windows finishes the button click before we steal focus.
-    root.after(1, _execute_send_to_chatgpt, text)
+    status_label.config(text="Sending to ChatGPT…", foreground="#106ba3")
+
+    # Run off the UI thread so focus/paste/Enter can use real timing without racing clears.
+    def _start() -> None:
+        threading.Thread(target=_execute_send_to_chatgpt, args=(text,), daemon=True).start()
+
+    root.after(15, _start)
 
 
 # --- Caption copying (Copy Now + Auto) ---
